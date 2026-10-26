@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Квест жизни</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{--bg:#14161f;--panel:#1d2030;--line:#2b2f45;--text:#e8e9f0;--dim:#8b90a8;--gold:#f2c14e;--teal:#4fd1c5;--red:#ef6b6b}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--text);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body{padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0)}
+main{max-width:560px;margin:0 auto;padding:16px 16px 90px}
+.hero{padding:8px 0 18px}
+.lvl{display:flex;align-items:baseline;gap:10px}
+.lvl b{font:800 64px/1 Georgia,"Times New Roman",serif;color:var(--gold)}
+.lvl span{color:var(--dim)}
+.bar{height:14px;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden;margin:12px 0 6px}
+.bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--teal),var(--gold));transition:width .5s}
+.meta{display:flex;justify-content:space-between;color:var(--dim);font-size:14px}
+nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--panel);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0)}
+nav button{flex:1;padding:14px 4px;background:none;border:0;color:var(--dim);font:inherit;font-size:14px}
+nav button.on{color:var(--gold);font-weight:600}
+.add{display:grid;grid-template-columns:1fr auto;gap:8px;margin-bottom:8px}
+input,select{background:var(--panel);border:1px solid var(--line);border-radius:10px;color:var(--text);padding:11px 12px;font:inherit;min-width:0}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px}
+.btn{background:var(--gold);color:#1a1405;border:0;border-radius:10px;padding:0 16px;font:inherit;font-weight:700}
+.task{display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:8px}
+.chk{width:28px;height:28px;flex:none;border:2px solid var(--dim);border-radius:50%;background:none;color:#1a1405;font-size:16px;font-weight:800;padding:0}
+.task.done .chk{background:var(--teal);border-color:var(--teal)}
+.task.done .t{text-decoration:line-through;color:var(--dim)}
+.t{flex:1;min-width:0;overflow-wrap:anywhere}
+.t small{display:block;color:var(--dim);font-size:13px}
+.xp{color:var(--gold);font-weight:700;font-size:14px;white-space:nowrap}
+.del{background:none;border:0;color:var(--dim);font-size:20px;padding:4px 6px}
+h2{font-size:15px;color:var(--dim);font-weight:600;margin:18px 0 8px}
+.empty{color:var(--dim);text-align:center;padding:28px 0}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+.stat b{display:block;font-size:26px}
+.stat span{color:var(--dim);font-size:13px}
+.cat{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:8px}
+.cat .n{flex:1}.cat small{color:var(--dim);display:block}
+.ach{display:flex;gap:12px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:8px}
+.ach .ic{font-size:30px;width:40px;text-align:center}
+.ach.lock{opacity:.45;filter:grayscale(1)}
+.ach small{color:var(--dim);display:block}
+.toast{position:fixed;left:16px;right:16px;top:calc(16px + env(safe-area-inset-top,0));max-width:528px;margin:0 auto;background:var(--gold);color:#1a1405;border-radius:12px;padding:14px;font-weight:700;transform:translateY(-140%);transition:transform .35s;z-index:9}
+.toast.show{transform:none}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="toast" id="toast"></div>
+<main>
+  <section class="hero">
+    <div class="lvl"><b id="lvl">1</b><span>уровень</span></div>
+    <div class="bar"><i id="fill"></i></div>
+    <div class="meta"><span id="cur"></span><span id="total"></span></div>
+  </section>
+  <div id="view"></div>
+</main>
+<nav id="nav">
+  <button data-t="tasks" class="on">Задачи</button>
+  <button data-t="stats">Статистика</button>
+  <button data-t="ach">Достижения</button>
+</nav>
+<script>
+const tg = window.Telegram && Telegram.WebApp;
+if (tg) { tg.ready(); tg.expand(); try { tg.setHeaderColor('#14161f'); tg.setBackgroundColor('#14161f'); } catch (e) {} }
+
+const CATS = {
+  read: ['📖', 'Чтение'], gym: ['🏋️', 'Тренировка'], study: ['🎓', 'Учёба'],
+  work: ['💼', 'Работа'], other: ['✨', 'Другое']
+};
+const DIFF = [[10, 'Лёгкая · 10 XP'], [25, 'Средняя · 25 XP'], [50, 'Сложная · 50 XP'], [100, 'Эпическая · 100 XP']];
+const MILESTONES = [
+  [5, '🥉', 'Новичок'], [10, '🥈', 'Десятка'], [15, '🔥', 'В ритме'], [20, '⚔️', 'Закалённый'],
+  [25, '🥇', 'Четверть сотни'], [50, '👑', 'Полтинник'], [75, '💎', 'Легенда'], [100, '🏆', 'Сотня']
+];
+const KEY = 'life-quest-v1';
+let S = { tasks: [], xp: 0, ach: {} };
+try { S = Object.assign(S, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) {}
+let tab = 'tasks';
+
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} };
+const need = L => 100 + 50 * (L - 1);              // XP, чтобы перейти с уровня L на L+1
+function calc(xp) {
+  let L = 1, left = Math.max(0, xp);
+  while (left >= need(L)) { left -= need(L); L++; }
+  return { L, left, need: need(L) };
+}
+const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const $ = id => document.getElementById(id);
+
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast.id); toast.id = setTimeout(() => t.classList.remove('show'), 3200);
+}
+function buzz(kind) { try { tg && tg.HapticFeedback.notificationOccurred(kind); } catch (e) {} }
+
+function toggle(id) {
+  const t = S.tasks.find(x => x.id === id); if (!t) return;
+  const before = calc(S.xp).L;
+  t.done = !t.done;
+  t.doneAt = t.done ? Date.now() : null;
+  S.xp += t.done ? t.xp : -t.xp;
+  const after = calc(S.xp).L;
+  if (t.done) {
+    buzz('success');
+    if (after > before) {
+      let msg = '🎉 Новый уровень: ' + after + '!';
+      MILESTONES.forEach(([lv, ic, name]) => {
+        if (after >= lv && !S.ach[lv]) { S.ach[lv] = Date.now(); msg = ic + ' Достижение «' + name + '»! Уровень ' + after; }
+      });
+      toast(msg); buzz('success');
+    } else toast('+' + t.xp + ' XP');
+  }
+  save(); render();
+}
+function addTask() {
+  const title = $('title').value.trim(); if (!title) { $('title').focus(); return; }
+  S.tasks.unshift({ id: Date.now(), title, cat: $('cat').value, xp: +$('diff').value, done: false });
+  save(); render();
+}
+function del(id) {
+  const t = S.tasks.find(x => x.id === id); if (!t) return;
+  if (t.done) S.xp -= t.xp;
+  S.tasks = S.tasks.filter(x => x.id !== id);
+  save(); render();
+}
+
+function header() {
+  const c = calc(S.xp);
+  $('lvl').textContent = c.L;
+  $('fill').style.width = (c.left / c.need * 100) + '%';
+  $('cur').textContent = c.left + ' / ' + c.need + ' XP до уровня ' + (c.L + 1);
+  $('total').textContent = 'всего ' + S.xp + ' XP';
+}
+
+function tasksView() {
+  const opt = o => Object.entries(o).map(([k, v]) => '<option value="' + k + '">' + v[0] + ' ' + v[1] + '</option>').join('');
+  const open = S.tasks.filter(t => !t.done), done = S.tasks.filter(t => t.done);
+  const item = t => '<div class="task' + (t.done ? ' done' : '') + '"><button class="chk" data-toggle="' + t.id + '" aria-label="Выполнено">' + (t.done ? '✓' : '') + '</button>' +
+    '<div class="t">' + esc(t.title) + '<small>' + CATS[t.cat][0] + ' ' + CATS[t.cat][1] + '</small></div>' +
+    '<span class="xp">+' + t.xp + '</span><button class="del" data-del="' + t.id + '" aria-label="Удалить">×</button></div>';
+  return '<div class="add"><input id="title" placeholder="Новая задача" maxlength="120"><button class="btn" id="addBtn">Добавить</button></div>' +
+    '<div class="row2"><select id="cat">' + opt(CATS) + '</select><select id="diff">' +
+    DIFF.map(d => '<option value="' + d[0] + '">' + d[1] + '</option>').join('') + '</select></div>' +
+    (open.length ? open.map(item).join('') : '<div class="empty">Нет активных задач. Добавь первую.</div>') +
+    (done.length ? '<h2>Выполнено</h2>' + done.map(item).join('') : '');
+}
+function statsView() {
+  const done = S.tasks.filter(t => t.done);
+  const week = done.filter(t => t.doneAt && Date.now() - t.doneAt < 7 * 864e5).length;
+  let h = '<div class="grid"><div class="stat"><b>' + done.length + '</b><span>задач выполнено</span></div>' +
+    '<div class="stat"><b>' + week + '</b><span>за 7 дней</span></div></div><h2>По направлениям</h2>';
+  Object.entries(CATS).forEach(([k, [ic, name]]) => {
+    const d = done.filter(t => t.cat === k);
+    h += '<div class="cat"><span style="font-size:26px">' + ic + '</span><div class="n">' + name +
+      '<small>' + d.length + ' выполнено</small></div><span class="xp">' + d.reduce((a, t) => a + t.xp, 0) + ' XP</span></div>';
+  });
+  return h;
+}
+function achView() {
+  const L = calc(S.xp).L;
+  return MILESTONES.map(([lv, ic, name]) => {
+    const got = !!S.ach[lv];
+    return '<div class="ach' + (got ? '' : ' lock') + '"><span class="ic">' + ic + '</span><div><b>' + name + '</b>' +
+      '<small>' + (got ? 'Получено ' + new Date(S.ach[lv]).toLocaleDateString('ru-RU') : 'Достигни уровня ' + lv) + '</small></div></div>';
+  }).join('');
+}
+
+function render() {
+  header();
+  const keep = tab === 'tasks' && $('title') ? $('title').value : '';
+  $('view').innerHTML = tab === 'tasks' ? tasksView() : tab === 'stats' ? statsView() : achView();
+  if ($('title')) $('title').value = keep;
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.t === tab));
+}
+
+document.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.t) { tab = b.dataset.t; render(); }
+  else if (b.dataset.toggle) toggle(+b.dataset.toggle);
+  else if (b.dataset.del) del(+b.dataset.del);
+  else if (b.id === 'addBtn') addTask();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'title') addTask(); });
+
+// Достижения за уже набранный уровень (на случай старых данных)
+(function () { const L = calc(S.xp).L; MILESTONES.forEach(([lv]) => { if (L >= lv && !S.ach[lv]) S.ach[lv] = Date.now(); }); save(); })();
+render();
+</script>
+</body>
+</html>
